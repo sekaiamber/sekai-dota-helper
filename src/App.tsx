@@ -2,12 +2,59 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bell, ChevronDown, Eye, EyeOff, Grip, Pause, PencilLine, Play, RotateCcw, Search, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { defaultHeroStrategies, defaultPositionStrategies, heroCatalog, itemCatalog, roleNames } from "./data";
-import type { HeroCatalogEntry, HeroAttribute, HeroStrategyV2, PositionStrategy, Role, TimelineEvent } from "./types";
+import { defaultGlobalTimeline, defaultHeroStrategies, defaultPositionStrategies, heroCatalog, itemCatalog, roleNames } from "./data";
+import type { HeroCatalogEntry, HeroAttribute, HeroStrategyV2, PositionStrategy, Role, StrategyTimePoint, TimelineEvent, TimelineEventSource } from "./types";
 import StrategyEditor from "./StrategyEditor";
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 type DisplayMode = "normal" | "compact" | "minimal";
+type MinimalWidgetKind = "controls" | "build" | "timer" | "timeline";
+const minimalWidgetLabels = ["minimal-controls", "minimal-build", "minimal-timer", "minimal-timeline"] as const;
+const sourceLabels: Record<TimelineEventSource, string> = { global: "通用", hero: "英雄", position: "位置" };
+
+interface MinimalSnapshot {
+  heroName: string;
+  heroStrategyTitle: string;
+  roleName: string;
+  positionStrategyTitle: string;
+  itemKeys: string[];
+  elapsed: number;
+  running: boolean;
+  nextEvent: TimelineEvent | null;
+  visibleEvents: TimelineEvent[];
+}
+
+const migratePositionStrategies = (): PositionStrategy[] => {
+  try {
+    const legacy = localStorage.getItem("position-strategies-v2");
+    if (!legacy) return defaultPositionStrategies;
+    const globalIds = new Set(defaultGlobalTimeline.map((point) => point.id));
+    return (JSON.parse(legacy) as PositionStrategy[]).map((strategy) => ({
+      ...strategy,
+      timeline: strategy.timeline.filter((point) => !globalIds.has(point.id))
+    }));
+  } catch {
+    return defaultPositionStrategies;
+  }
+};
+
+const mergeTimelineEvents = (events: TimelineEvent[]): TimelineEvent[] => {
+  const groups = new Map<number, TimelineEvent[]>();
+  for (const event of events) groups.set(event.seconds, [...(groups.get(event.seconds) ?? []), event]);
+  return [...groups.entries()].sort(([a], [b]) => a - b).map(([seconds, entries]) => {
+    const titles = [...new Set(entries.map((entry) => entry.title))];
+    const sources = [...new Set(entries.flatMap((entry) => entry.sources))] as TimelineEventSource[];
+    return {
+      id: entries.map((entry) => entry.id).sort().join("+"),
+      role: entries[0].role,
+      seconds,
+      title: titles.join(" · "),
+      detail: sources.map((source) => sourceLabels[source]).join(" · "),
+      warningSeconds: Math.max(...entries.map((entry) => entry.warningSeconds)),
+      sources
+    };
+  });
+};
 const formatTime = (seconds: number) => {
   const sign = seconds < 0 ? "−" : "";
   const absolute = Math.abs(Math.floor(seconds));
@@ -24,16 +71,20 @@ function usePersisted<T>(key: string, initial: T) {
 }
 
 export default function App() {
-  return new URLSearchParams(window.location.search).get("mode") === "unlock"
-    ? <UnlockController />
-    : <MainOverlay />;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mode") === "unlock") return <UnlockController />;
+  if (params.get("mode") === "minimal-widget") {
+    return <MinimalWidget kind={(params.get("widget") ?? "controls") as MinimalWidgetKind} />;
+  }
+  return <MainOverlay />;
 }
 
 function MainOverlay() {
   const [heroId, setHeroId] = usePersisted("hero", heroCatalog[0].id);
   const hero = heroCatalog.find((entry) => entry.id === heroId) ?? heroCatalog[0];
   const [heroStrategies, setHeroStrategies] = usePersisted<HeroStrategyV2[]>("hero-strategies-v2", defaultHeroStrategies);
-  const [positionStrategies, setPositionStrategies] = usePersisted<PositionStrategy[]>("position-strategies-v2", defaultPositionStrategies);
+  const [positionStrategies, setPositionStrategies] = usePersisted<PositionStrategy[]>("position-strategies-v3", migratePositionStrategies());
+  const [globalTimeline, setGlobalTimeline] = usePersisted<StrategyTimePoint[]>("global-timeline-v1", defaultGlobalTimeline);
   const heroOptions = heroStrategies.filter((entry) => entry.heroId === hero.id);
   const [heroStrategyId, setHeroStrategyId] = usePersisted("hero-strategy-selection", heroOptions[0]?.id ?? "");
   const heroStrategy = heroOptions.find((entry) => entry.id === heroStrategyId) ?? heroOptions[0] ?? null;
@@ -42,6 +93,7 @@ function MainOverlay() {
   const [positionStrategyId, setPositionStrategyId] = usePersisted("position-strategy-selection", positionOptions[0]?.id ?? "");
   const positionStrategy = positionOptions.find((entry) => entry.id === positionStrategyId) ?? positionOptions[0] ?? null;
   const [displayMode, setDisplayMode] = usePersisted<DisplayMode>("display-mode", "normal");
+  const displayModeRef = useRef<DisplayMode>(displayMode);
   const [editorOpen, setEditorOpen] = useState(false);
   const [clickThrough, setClickThrough] = useState(false);
   const clickThroughRef = useRef(false);
@@ -51,9 +103,13 @@ function MainOverlay() {
   const [showSetup, setShowSetup] = useState(true);
   const [fired, setFired] = useState<string[]>([]);
   const anchorRef = useRef({ at: performance.now(), elapsed: 0 });
+  const minimalSnapshotRef = useRef<MinimalSnapshot | null>(null);
+
+  useEffect(() => { displayModeRef.current = displayMode; }, [displayMode]);
 
   useEffect(() => {
     if (!isTauri()) return;
+    if (displayMode === "minimal") return;
     const sizes: Record<DisplayMode, [number, number]> = {
       normal: [600, 800],
       compact: [460, 560],
@@ -65,6 +121,53 @@ function MainOverlay() {
     });
   }, [displayMode, editorOpen]);
 
+  const arrangeMinimalWidgets = useCallback(async (reset: boolean) => {
+    if (!isTauri()) return;
+    const { getCurrentWindow, PhysicalPosition } = await import("@tauri-apps/api/window");
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const origin = await getCurrentWindow().outerPosition();
+    const defaults: Record<(typeof minimalWidgetLabels)[number], [number, number]> = {
+      "minimal-controls": [origin.x, origin.y],
+      "minimal-build": [origin.x, origin.y + 62],
+      "minimal-timer": [origin.x, origin.y + 108],
+      "minimal-timeline": [origin.x, origin.y + 160]
+    };
+    await Promise.all(minimalWidgetLabels.map(async (label) => {
+      const widget = await WebviewWindow.getByLabel(label);
+      if (!widget) return;
+      const storageKey = `minimal-position:${label}`;
+      let position = defaults[label];
+      if (!reset) {
+        try {
+          const saved = localStorage.getItem(storageKey);
+          if (saved) position = JSON.parse(saved) as [number, number];
+        } catch { /* Fall back to the unified layout. */ }
+      }
+      localStorage.setItem(storageKey, JSON.stringify(position));
+      await widget.setPosition(new PhysicalPosition(position[0], position[1]));
+      await widget.show();
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void (async () => {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const main = getCurrentWindow();
+      if (displayMode === "minimal") {
+        await arrangeMinimalWidgets(false);
+        await main.hide();
+      } else {
+        await Promise.all(minimalWidgetLabels.map(async (label) => {
+          const widget = await WebviewWindow.getByLabel(label);
+          if (widget) await widget.hide();
+        }));
+        await main.show();
+      }
+    })();
+  }, [arrangeMinimalWidgets, displayMode]);
+
   useEffect(() => {
     if (heroStrategy && heroStrategy.id !== heroStrategyId) setHeroStrategyId(heroStrategy.id);
   }, [heroStrategy?.id, heroStrategyId, setHeroStrategyId]);
@@ -72,10 +175,11 @@ function MainOverlay() {
     if (positionStrategy && positionStrategy.id !== positionStrategyId) setPositionStrategyId(positionStrategy.id);
   }, [positionStrategy?.id, positionStrategyId, setPositionStrategyId]);
 
-  const roleEvents = useMemo<TimelineEvent[]>(() => [
-    ...(heroStrategy?.timeline ?? []).map((point) => ({ id: `hero:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "英雄策略", warningSeconds: point.warningSeconds ?? 15 })),
-    ...(positionStrategy?.timeline ?? []).map((point) => ({ id: `position:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "位置策略", warningSeconds: point.warningSeconds ?? 15 }))
-  ].sort((a, b) => a.seconds - b.seconds), [heroStrategy, positionStrategy, role]);
+  const roleEvents = useMemo<TimelineEvent[]>(() => mergeTimelineEvents([
+    ...globalTimeline.map((point) => ({ id: `global:${point.id}`, role: "all" as const, seconds: point.seconds, title: point.title, detail: "通用时间轴", warningSeconds: point.warningSeconds ?? 15, sources: ["global" as const] })),
+    ...(heroStrategy?.timeline ?? []).map((point) => ({ id: `hero:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "英雄策略", warningSeconds: point.warningSeconds ?? 15, sources: ["hero" as const] })),
+    ...(positionStrategy?.timeline ?? []).map((point) => ({ id: `position:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "位置策略", warningSeconds: point.warningSeconds ?? 15, sources: ["position" as const] }))
+  ]), [globalTimeline, heroStrategy, positionStrategy, role]);
   const nextEvent = roleEvents.find((event) => event.seconds >= elapsed - 2);
 
   const applyHero = (entry: HeroCatalogEntry) => {
@@ -135,14 +239,19 @@ function MainOverlay() {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       const main = getCurrentWindow();
       const unlock = await WebviewWindow.getByLabel("unlock");
-      if (enabled && unlock) {
+      if (enabled && unlock && displayModeRef.current !== "minimal") {
         const [position, size] = await Promise.all([main.outerPosition(), main.outerSize()]);
         await unlock.setPosition(new PhysicalPosition(position.x + size.width - 54, position.y + 8));
         await unlock.show();
         await unlock.setFocus();
+      } else if (unlock) {
+        await unlock.hide();
       }
       await main.setIgnoreCursorEvents(enabled);
-      if (!enabled && unlock) await unlock.hide();
+      await Promise.all(minimalWidgetLabels.map(async (label) => {
+        const widget = await WebviewWindow.getByLabel(label);
+        if (widget) await widget.setIgnoreCursorEvents(enabled);
+      }));
     }
   }, []);
 
@@ -150,6 +259,9 @@ function MainOverlay() {
     if (!isTauri()) return;
     let cleanupShortcut: (() => Promise<void>) | undefined;
     let cleanupEvent: (() => void) | undefined;
+    let cleanupMode: (() => void) | undefined;
+    let cleanupReset: (() => void) | undefined;
+    let cleanupReady: (() => void) | undefined;
     (async () => {
       const { register, unregister } = await import("@tauri-apps/plugin-global-shortcut");
       await register("F8", (event) => {
@@ -161,18 +273,41 @@ function MainOverlay() {
         }
       });
       cleanupShortcut = () => unregister("F8");
-      const { listen } = await import("@tauri-apps/api/event");
+      const { emit, listen } = await import("@tauri-apps/api/event");
       cleanupEvent = await listen<boolean>("click-through-changed", (event) => {
         clickThroughRef.current = event.payload;
         setClickThrough(event.payload);
       });
+      cleanupMode = await listen<DisplayMode>("minimal-mode-change", (event) => setDisplayMode(event.payload));
+      cleanupReset = await listen("minimal-reset", () => void arrangeMinimalWidgets(true));
+      cleanupReady = await listen("minimal-widget-ready", () => {
+        if (minimalSnapshotRef.current) void emit("minimal-state", minimalSnapshotRef.current);
+      });
     })();
-    return () => { void cleanupShortcut?.(); cleanupEvent?.(); };
-  }, [setPassThrough]);
+    return () => { void cleanupShortcut?.(); cleanupEvent?.(); cleanupMode?.(); cleanupReset?.(); cleanupReady?.(); };
+  }, [arrangeMinimalWidgets, setDisplayMode, setPassThrough]);
 
   const visibleEvents = roleEvents
     .filter((event) => event.seconds >= elapsed - 30)
     .slice(0, displayMode === "normal" ? 4 : displayMode === "compact" ? 2 : 3);
+
+  const minimalSnapshot: MinimalSnapshot = {
+    heroName: hero.name,
+    heroStrategyTitle: heroStrategy?.title ?? "暂无",
+    roleName: roleNames[role].split(" · ")[0],
+    positionStrategyTitle: positionStrategy?.title ?? "暂无",
+    itemKeys: heroStrategy?.itemKeys ?? [],
+    elapsed,
+    running,
+    nextEvent: nextEvent ?? null,
+    visibleEvents: roleEvents.filter((event) => event.seconds >= elapsed).slice(0, 3)
+  };
+  minimalSnapshotRef.current = minimalSnapshot;
+
+  useEffect(() => {
+    if (!isTauri() || displayMode !== "minimal") return;
+    void import("@tauri-apps/api/event").then(({ emit }) => emit("minimal-state", minimalSnapshot));
+  }, [displayMode, elapsed, hero.name, heroStrategy, nextEvent, positionStrategy, role, roleEvents, running]);
 
   const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button, select, input, label")) return;
@@ -200,7 +335,7 @@ function MainOverlay() {
             <ChevronDown size={11} />
           </label>
           <button className="edit-strategies" title="编辑英雄与位置策略" onClick={() => setEditorOpen(true)}><PencilLine size={15} /></button>
-          <button title={clickThrough ? "已穿透，按 F8 解锁" : "鼠标穿透（F8 恢复）"} onClick={() => setPassThrough(!clickThrough)}>
+          <button className="click-through-toggle" title={clickThrough ? "已穿透，按 F8 解锁" : "鼠标穿透（F8 恢复）"} onClick={() => setPassThrough(!clickThrough)}>
             {clickThrough ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
           <button title="关闭" onClick={async () => { if (isTauri()) { const { getCurrentWindow } = await import("@tauri-apps/api/window"); await getCurrentWindow().close(); } }}><X size={16} /></button>
@@ -246,7 +381,7 @@ function MainOverlay() {
       </section>
 
       <section className="timeline">
-        {visibleEvents.length ? visibleEvents.map((event) => <EventRow key={event.id} event={event} elapsed={elapsed} />) : <div className="empty-timeline">当前两份策略都没有时间点</div>}
+        {visibleEvents.length ? visibleEvents.map((event) => <EventRow key={event.id} event={event} elapsed={elapsed} />) : <div className="empty-timeline">当前三份时间轴都没有时间点</div>}
       </section>
       <footer>F8 切换鼠标穿透 · 建议 Dota 2 使用无边框窗口模式</footer>
       {createPortal(<StrategyEditor
@@ -255,12 +390,87 @@ function MainOverlay() {
         role={role}
         heroStrategies={heroStrategies}
         positionStrategies={positionStrategies}
+        globalTimeline={globalTimeline}
         onHeroStrategiesChange={setHeroStrategies}
         onPositionStrategiesChange={setPositionStrategies}
+        onGlobalTimelineChange={setGlobalTimeline}
         onClose={() => setEditorOpen(false)}
       />, document.body)}
     </main>
   );
+}
+
+function MinimalWidget({ kind }: { kind: MinimalWidgetKind }) {
+  const [snapshot, setSnapshot] = useState<MinimalSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cleanupState: (() => void) | undefined;
+    let cleanupMoved: (() => void) | undefined;
+    let readyRetry: number | undefined;
+    void (async () => {
+      const { emit, listen } = await import("@tauri-apps/api/event");
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const current = getCurrentWindow();
+      cleanupState = await listen<MinimalSnapshot>("minimal-state", (event) => setSnapshot(event.payload));
+      cleanupMoved = await current.onMoved(({ payload }) => {
+        localStorage.setItem(`minimal-position:${current.label}`, JSON.stringify([payload.x, payload.y]));
+      });
+      await emit("minimal-widget-ready");
+      readyRetry = window.setTimeout(() => void emit("minimal-widget-ready"), 300);
+    })();
+    return () => { cleanupState?.(); cleanupMoved?.(); if (readyRetry) window.clearTimeout(readyRetry); };
+  }, []);
+
+  const drag = (event: React.MouseEvent<HTMLElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, select")) return;
+    void getCurrentWindow().startDragging();
+  };
+  const changeMode = async (mode: DisplayMode) => {
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit("minimal-mode-change", mode);
+  };
+  const closeApp = async () => {
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const main = await WebviewWindow.getByLabel("main");
+    if (main) await main.close();
+  };
+
+  if (kind === "controls") return <main className="minimal minimal-widget-root widget-controls">
+    <div className="widget-control-row">
+      <span className="widget-drag" title="拖动控制条" onMouseDown={drag}><Grip size={13} /></span>
+      <select aria-label="退出极简模式" value="minimal" onChange={(event) => void changeMode(event.target.value as DisplayMode)}>
+        <option value="normal">普通</option><option value="compact">紧凑</option><option value="minimal">极简</option>
+      </select>
+      <button title="恢复统一布局" onClick={async () => { const { emit } = await import("@tauri-apps/api/event"); await emit("minimal-reset"); }}><RotateCcw size={12} /></button>
+      <button title="关闭" onClick={closeApp}><X size={12} /></button>
+    </div>
+    <section className="minimal-selection-summary" aria-label="当前英雄与策略" onMouseDown={drag}>
+      <span title={snapshot?.heroName}>{snapshot?.heroName ?? "英雄"}</span>
+      <span title={snapshot?.heroStrategyTitle}>{snapshot?.heroStrategyTitle ?? "策略"}</span>
+      <span title={snapshot?.roleName}>{snapshot?.roleName ?? "位置"}</span>
+      <span title={snapshot?.positionStrategyTitle}>{snapshot?.positionStrategyTitle ?? "策略"}</span>
+    </section>
+  </main>;
+
+  if (kind === "build") return <main className="minimal minimal-widget-root widget-build" onMouseDown={drag}>
+    <section className="content-grid single"><article className="panel build">
+      {snapshot?.itemKeys.length ? <div className="item-path">{snapshot.itemKeys.map((key, index) => { const item = itemCatalog.find((entry) => entry.key === key); return item && <div className="item-step" key={`${key}-${index}`}><div className="item-icon"><img src={item.image} alt={item.name} /><span>{index + 1}</span></div></div>; })}</div> : <div className="widget-empty">暂无出装</div>}
+    </article></section>
+  </main>;
+
+  if (kind === "timer") {
+    const next = snapshot?.nextEvent;
+    const alert = next && next.seconds - (snapshot?.elapsed ?? 0) <= next.warningSeconds;
+    return <main className="minimal minimal-widget-root widget-timer" onMouseDown={drag}><section className="timer-panel">
+      <div className="clock"><strong>{formatTime(snapshot?.elapsed ?? 0)}</strong></div>
+      {next && <div className={`next-up ${alert ? "alert" : ""}`}><Bell size={16} /><b>{next.title}</b><strong>{formatTime(next.seconds - (snapshot?.elapsed ?? 0))}</strong></div>}
+    </section></main>;
+  }
+
+  return <main className="minimal minimal-widget-root widget-timeline" onMouseDown={drag}><section className="timeline">
+    {snapshot?.visibleEvents.length ? snapshot.visibleEvents.map((event) => <EventRow key={event.id} event={event} elapsed={snapshot.elapsed} />) : <div className="widget-empty">暂无未来时间点</div>}
+  </section></main>;
 }
 
 function UnlockController() {
@@ -291,7 +501,7 @@ function Calibration({ onCalibrate }: { onCalibrate: (seconds: number) => void }
 function EventRow({ event, elapsed }: { event: TimelineEvent; elapsed: number }) {
   const remaining = event.seconds - elapsed;
   const state = remaining < -2 ? "done" : remaining <= event.warningSeconds ? "soon" : "later";
-  return <div className={`event ${state}`}><time>{formatTime(event.seconds)}</time><span className="event-dot" /><div><b>{event.title}</b><small>{event.detail}</small></div><strong>{state === "done" ? "已过" : formatTime(remaining)}</strong></div>;
+  return <div className={`event ${state}`}><time>{formatTime(event.seconds)}</time><span className="event-dot" /><div><b>{event.title}</b><small className="event-sources">{event.sources.map((source) => <i className={`source-${source}`} key={source}>{sourceLabels[source]}</i>)}</small></div><strong>{state === "done" ? "已过" : formatTime(remaining)}</strong></div>;
 }
 
 const attributeNames: Record<HeroAttribute, string> = { str: "力量", agi: "敏捷", int: "智力", all: "全才" };

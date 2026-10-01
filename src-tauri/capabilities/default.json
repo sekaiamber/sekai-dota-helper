@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Desktop overlay permissions",
-  "windows": ["main", "unlock"],
+  "windows": ["main", "unlock", "minimal-controls", "minimal-build", "minimal-timer", "minimal-timeline"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

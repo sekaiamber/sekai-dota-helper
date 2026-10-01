@@ -9,8 +9,10 @@ interface Props {
   role: Role;
   heroStrategies: HeroStrategyV2[];
   positionStrategies: PositionStrategy[];
+  globalTimeline: StrategyTimePoint[];
   onHeroStrategiesChange: (strategies: HeroStrategyV2[]) => void;
   onPositionStrategiesChange: (strategies: PositionStrategy[]) => void;
+  onGlobalTimelineChange: (timeline: StrategyTimePoint[]) => void;
   onClose: () => void;
 }
 
@@ -18,11 +20,12 @@ const uid = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
 export default function StrategyEditor(props: Props) {
-  const [tab, setTab] = useState<"hero" | "position">("hero");
+  const [tab, setTab] = useState<"hero" | "position" | "global">("hero");
   const currentHeroStrategies = useMemo(() => props.heroStrategies.filter((strategy) => strategy.heroId === props.hero.id), [props.hero.id, props.heroStrategies]);
   const currentPositionStrategies = useMemo(() => props.positionStrategies.filter((strategy) => strategy.role === props.role), [props.positionStrategies, props.role]);
   const [heroDraft, setHeroDraft] = useState<HeroStrategyV2 | null>(null);
   const [positionDraft, setPositionDraft] = useState<PositionStrategy | null>(null);
+  const [globalDraft, setGlobalDraft] = useState<StrategyTimePoint[]>([]);
 
   useEffect(() => {
     setHeroDraft(currentHeroStrategies[0] ? clone(currentHeroStrategies[0]) : null);
@@ -30,6 +33,9 @@ export default function StrategyEditor(props: Props) {
   useEffect(() => {
     setPositionDraft(currentPositionStrategies[0] ? clone(currentPositionStrategies[0]) : null);
   }, [props.role, props.open]);
+  useEffect(() => {
+    setGlobalDraft(clone(props.globalTimeline));
+  }, [props.open]);
 
   if (!props.open) return null;
 
@@ -45,6 +51,7 @@ export default function StrategyEditor(props: Props) {
     const exists = props.positionStrategies.some((strategy) => strategy.id === positionDraft.id);
     props.onPositionStrategiesChange(exists ? props.positionStrategies.map((strategy) => strategy.id === positionDraft.id ? positionDraft : strategy) : [...props.positionStrategies, positionDraft]);
   };
+  const saveGlobal = () => props.onGlobalTimelineChange(globalDraft);
   const deleteHero = () => {
     if (!heroDraft) return;
     props.onHeroStrategiesChange(props.heroStrategies.filter((strategy) => strategy.id !== heroDraft.id));
@@ -62,6 +69,7 @@ export default function StrategyEditor(props: Props) {
       <nav>
         <button className={tab === "hero" ? "active" : ""} onClick={() => setTab("hero")}><img src={props.hero.image} alt="" />英雄策略 · {props.hero.name}</button>
         <button className={tab === "position" ? "active" : ""} onClick={() => setTab("position")}>位置策略 · {roleNames[props.role]}</button>
+        <button className={tab === "global" ? "active" : ""} onClick={() => setTab("global")}><Clock3 size={14} />通用时间轴</button>
       </nav>
 
       {tab === "hero" ? <div className="editor-body">
@@ -78,7 +86,7 @@ export default function StrategyEditor(props: Props) {
           <TimelineEditor points={heroDraft.timeline} onChange={(timeline) => setHeroDraft({ ...heroDraft, timeline })} />
           <EditorActions onDelete={deleteHero} onSave={saveHero} />
         </>}
-      </div> : <div className="editor-body">
+      </div> : tab === "position" ? <div className="editor-body">
         <EditorChooser
           value={positionDraft?.id ?? ""}
           entries={currentPositionStrategies.map((strategy) => ({ id: strategy.id, title: strategy.title }))}
@@ -91,6 +99,10 @@ export default function StrategyEditor(props: Props) {
           <TimelineEditor points={positionDraft.timeline} onChange={(timeline) => setPositionDraft({ ...positionDraft, timeline })} />
           <EditorActions onDelete={deletePosition} onSave={savePosition} />
         </>}
+      </div> : <div className="editor-body global-editor">
+        <p>无脑应用于所有英雄和位置，适合入夜、赏金符、魔方、莲花池等公共事件。</p>
+        <TimelineEditor label="通用时间点" points={globalDraft} onChange={setGlobalDraft} />
+        <div className="editor-actions"><button className="save" onClick={saveGlobal}><Save size={14} />保存通用时间轴</button></div>
       </div>}
     </section>
   </div>;
@@ -121,8 +133,8 @@ function ItemEditor({ keys, onChange }: { keys:string[];onChange:(keys:string[])
   </div>;
 }
 
-function TimelineEditor({ points, onChange }: { points:StrategyTimePoint[];onChange:(points:StrategyTimePoint[])=>void }) {
-  return <div className="timeline-editor"><h3><Clock3 size={14} />策略时间点 <small>可以留空 · 默认提前 15 秒提醒</small><button onClick={() => onChange([...points, { id: uid(), seconds: 0, title: "新时间点", warningSeconds: 15 }])}><Plus size={12} />添加</button></h3>
+function TimelineEditor({ points, onChange, label = "策略时间点" }: { points:StrategyTimePoint[];onChange:(points:StrategyTimePoint[])=>void;label?:string }) {
+  return <div className="timeline-editor"><h3><Clock3 size={14} />{label} <small>可以留空 · 默认提前 15 秒提醒</small><button onClick={() => onChange([...points, { id: uid(), seconds: 0, title: "新时间点", warningSeconds: 15 }])}><Plus size={12} />添加</button></h3>
     {[...points].sort((a,b) => a.seconds-b.seconds).map((point) => <div className="timeline-edit-row" key={point.id}>
       <div className="time-parts"><input type="number" min="0" value={Math.floor(point.seconds / 60)} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, seconds: Math.max(0, Number(event.target.value)) * 60 + entry.seconds % 60 } : entry))} /><i>:</i><input type="number" min="0" max="59" value={point.seconds % 60} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, seconds: Math.floor(entry.seconds / 60) * 60 + Math.min(59, Math.max(0, Number(event.target.value))) } : entry))} /></div>
       <input value={point.title} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, title: event.target.value } : entry))} />

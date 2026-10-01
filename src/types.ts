@@ -51,7 +51,10 @@ export interface TimelineEvent {
   title: string;
   detail: string;
   warningSeconds: number;
+  sources: TimelineEventSource[];
 }
+
+export type TimelineEventSource = "global" | "hero" | "position";
 
 export interface StrategyTimePoint {
   id: string;

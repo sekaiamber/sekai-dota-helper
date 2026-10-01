@@ -1,4 +1,4 @@
-import type { Hero, HeroCatalogEntry, HeroStrategyV2, ItemCatalogEntry, PositionStrategy, Role, TimelineEvent } from "./types";
+import type { Hero, HeroCatalogEntry, HeroStrategyV2, ItemCatalogEntry, PositionStrategy, Role, StrategyTimePoint, TimelineEvent } from "./types";
 import heroCatalogData from "./catalog/heroes.json";
 import itemCatalogData from "./catalog/items.json";
 
@@ -92,16 +92,22 @@ const positionSummaries: Record<Role, string> = {
 };
 
 export const timeline: TimelineEvent[] = [
-  { id: "bounty-0", role: "all", seconds: 0, title: "赏金符", detail: "确认分路与抢符风险", warningSeconds: 15 },
-  { id: "lotus-3", role: "5", seconds: 180, title: "莲花池", detail: "提前推线，3:00 刷新第一朵莲花", warningSeconds: 20 },
-  { id: "wisdom-7", role: "5", seconds: 420, title: "智慧符", detail: "6:30 开始规划路线，必要时叫4号位协防", warningSeconds: 30 },
-  { id: "wisdom-7-4", role: "4", seconds: 420, title: "智慧符", detail: "优先偷对面或保自家经验符", warningSeconds: 30 },
-  { id: "lotus-6", role: "5", seconds: 360, title: "莲花池", detail: "第二次莲花刷新", warningSeconds: 20 },
-  { id: "power-6", role: "2", seconds: 360, title: "强化神符", detail: "5:40 推线，控 6 分钟强化符", warningSeconds: 25 },
-  { id: "catapult-5", role: "3", seconds: 300, title: "攻城车波", detail: "用车线压塔或逼辅助回防", warningSeconds: 25 },
-  { id: "night-5", role: "all", seconds: 300, title: "入夜", detail: "视野缩小，注意第一轮夜间游走", warningSeconds: 20 },
-  { id: "tormentor-20", role: "all", seconds: 1200, title: "魔方刷新", detail: "评估阵容与状态，决定是否集合", warningSeconds: 45 }
+  { id: "bounty-0", role: "all", seconds: 0, title: "赏金符", detail: "确认分路与抢符风险", warningSeconds: 15, sources: ["global"] },
+  { id: "lotus-3", role: "5", seconds: 180, title: "莲花池", detail: "提前推线，3:00 刷新第一朵莲花", warningSeconds: 20, sources: ["global"] },
+  { id: "wisdom-7", role: "5", seconds: 420, title: "智慧符", detail: "6:30 开始规划路线，必要时叫4号位协防", warningSeconds: 30, sources: ["position"] },
+  { id: "wisdom-7-4", role: "4", seconds: 420, title: "智慧符", detail: "优先偷对面或保自家经验符", warningSeconds: 30, sources: ["position"] },
+  { id: "lotus-6", role: "5", seconds: 360, title: "莲花池", detail: "第二次莲花刷新", warningSeconds: 20, sources: ["global"] },
+  { id: "power-6", role: "2", seconds: 360, title: "强化神符", detail: "5:40 推线，控 6 分钟强化符", warningSeconds: 25, sources: ["position"] },
+  { id: "catapult-5", role: "3", seconds: 300, title: "攻城车波", detail: "用车线压塔或逼辅助回防", warningSeconds: 25, sources: ["position"] },
+  { id: "night-5", role: "all", seconds: 300, title: "入夜", detail: "视野缩小，注意第一轮夜间游走", warningSeconds: 20, sources: ["global"] },
+  { id: "tormentor-20", role: "all", seconds: 1200, title: "魔方刷新", detail: "评估阵容与状态，决定是否集合", warningSeconds: 45, sources: ["global"] }
 ];
+
+const defaultGlobalEventIds = new Set(["bounty-0", "lotus-3", "lotus-6", "night-5", "tormentor-20"]);
+
+export const defaultGlobalTimeline: StrategyTimePoint[] = timeline
+  .filter((event) => defaultGlobalEventIds.has(event.id))
+  .map((event) => ({ id: event.id, seconds: event.seconds, title: event.title, warningSeconds: event.warningSeconds }));
 
 export const defaultPositionStrategies: PositionStrategy[] = (Object.keys(roleNames) as Role[]).map((role) => ({
   id: `role-${role}-standard`,
@@ -109,6 +115,6 @@ export const defaultPositionStrategies: PositionStrategy[] = (Object.keys(roleNa
   title: "标准节奏",
   summary: positionSummaries[role],
   timeline: timeline
-    .filter((event) => event.role === "all" || event.role === role)
+    .filter((event) => event.role === role && !defaultGlobalEventIds.has(event.id))
     .map((event) => ({ id: event.id, seconds: event.seconds, title: event.title, warningSeconds: 15 }))
 }));

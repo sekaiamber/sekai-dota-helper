@@ -36,6 +36,58 @@
       "alwaysOnTop": true,
       "skipTaskbar": true,
       "shadow": false
+    }, {
+      "label": "minimal-controls",
+      "title": "Sekai 极简控制",
+      "url": "index.html?mode=minimal-widget&widget=controls",
+      "width": 244,
+      "height": 58,
+      "resizable": false,
+      "visible": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "skipTaskbar": true,
+      "shadow": false
+    }, {
+      "label": "minimal-build",
+      "title": "Sekai 极简出装",
+      "url": "index.html?mode=minimal-widget&widget=build",
+      "width": 220,
+      "height": 42,
+      "resizable": false,
+      "visible": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "skipTaskbar": true,
+      "shadow": false
+    }, {
+      "label": "minimal-timer",
+      "title": "Sekai 极简倒计时",
+      "url": "index.html?mode=minimal-widget&widget=timer",
+      "width": 220,
+      "height": 48,
+      "resizable": false,
+      "visible": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "skipTaskbar": true,
+      "shadow": false
+    }, {
+      "label": "minimal-timeline",
+      "title": "Sekai 极简时间轴",
+      "url": "index.html?mode=minimal-widget&widget=timeline",
+      "width": 220,
+      "height": 132,
+      "resizable": false,
+      "visible": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "skipTaskbar": true,
+      "shadow": false
     }],
     "security": { "csp": null }
   },

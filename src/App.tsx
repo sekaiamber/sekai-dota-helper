@@ -45,6 +45,7 @@ function MainOverlay() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [clickThrough, setClickThrough] = useState(false);
   const clickThroughRef = useRef(false);
+  const shortcutPressedRef = useRef(false);
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [showSetup, setShowSetup] = useState(true);
@@ -56,7 +57,7 @@ function MainOverlay() {
     const sizes: Record<DisplayMode, [number, number]> = {
       normal: [600, 800],
       compact: [460, 560],
-      minimal: [304, 360]
+      minimal: [244, 360]
     };
     void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
       const [width, height] = editorOpen ? [720, 820] : sizes[displayMode];
@@ -151,7 +152,14 @@ function MainOverlay() {
     let cleanupEvent: (() => void) | undefined;
     (async () => {
       const { register, unregister } = await import("@tauri-apps/plugin-global-shortcut");
-      await register("F8", () => void setPassThrough(!clickThroughRef.current));
+      await register("F8", (event) => {
+        if (event.state === "Pressed" && !shortcutPressedRef.current) {
+          shortcutPressedRef.current = true;
+          void setPassThrough(!clickThroughRef.current);
+        } else if (event.state === "Released") {
+          shortcutPressedRef.current = false;
+        }
+      });
       cleanupShortcut = () => unregister("F8");
       const { listen } = await import("@tauri-apps/api/event");
       cleanupEvent = await listen<boolean>("click-through-changed", (event) => {
@@ -179,6 +187,7 @@ function MainOverlay() {
   return (
     <main className={`shell ${displayMode}`}>
       <header className="titlebar">
+        <div className="minimal-drag-handle" title="拖动面板" onMouseDown={startWindowDrag}><Grip size={14} /></div>
         <div className="brand" onMouseDown={startWindowDrag}><span className="brand-mark">界</span><b>SEKAI</b><em>DOTA HELPER</em></div>
         <div className="drag-hint" onMouseDown={startWindowDrag}><Grip size={14} /> 拖动面板</div>
         <div className="window-actions">
@@ -190,7 +199,7 @@ function MainOverlay() {
             </select>
             <ChevronDown size={11} />
           </label>
-          <button title="编辑英雄与位置策略" onClick={() => setEditorOpen(true)}><PencilLine size={15} /></button>
+          <button className="edit-strategies" title="编辑英雄与位置策略" onClick={() => setEditorOpen(true)}><PencilLine size={15} /></button>
           <button title={clickThrough ? "已穿透，按 F8 解锁" : "鼠标穿透（F8 恢复）"} onClick={() => setPassThrough(!clickThrough)}>
             {clickThrough ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
@@ -198,12 +207,17 @@ function MainOverlay() {
         </div>
       </header>
 
-      <section className="matchbar">
+      {displayMode === "minimal" ? <section className="minimal-selection-summary" aria-label="当前英雄与策略">
+        <span title={hero.name}>{hero.name}</span>
+        <span title={heroStrategy?.title ?? "暂无英雄策略"}>{heroStrategy?.title ?? "暂无"}</span>
+        <span title={roleNames[role]}>{roleNames[role].split(" · ")[0]}</span>
+        <span title={positionStrategy?.title ?? "暂无位置策略"}>{positionStrategy?.title ?? "暂无"}</span>
+      </section> : <section className="matchbar">
         <label className="hero-field"><span>英雄</span><HeroPicker selectedId={hero.id} onSelect={applyHero} /></label>
         <label><span>英雄策略</span><select value={heroStrategy?.id ?? ""} disabled={!heroOptions.length} onChange={(event) => setHeroStrategyId(event.target.value)}>{heroOptions.length ? heroOptions.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>) : <option value="">暂无策略</option>}</select><ChevronDown size={14} /></label>
         <label><span>位置</span><select value={role} onChange={(event) => applyRole(event.target.value as Role)}>{Object.entries(roleNames).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select><ChevronDown size={14} /></label>
         <label><span>位置策略</span><select value={positionStrategy?.id ?? ""} disabled={!positionOptions.length} onChange={(event) => setPositionStrategyId(event.target.value)}>{positionOptions.length ? positionOptions.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>) : <option value="">暂无策略</option>}</select><ChevronDown size={14} /></label>
-      </section>
+      </section>}
 
       <section className="hero-card">
         <img src={hero.image} alt={hero.name} />
@@ -228,7 +242,7 @@ function MainOverlay() {
           <button onClick={togglePause}>{running ? <Pause size={15} /> : <Play size={15} />}{running ? "暂停" : "继续"}</button>
         </div>
         {showSetup && <Calibration onCalibrate={calibrate} />}
-        {!showSetup && nextEvent && <div className={`next-up ${nextEvent.seconds - elapsed <= nextEvent.warningSeconds ? "alert" : ""}`}><Bell size={16} /><span>下一项</span><b>{nextEvent.title}</b><strong>{formatTime(nextEvent.seconds - elapsed)}</strong></div>}
+        {(!showSetup || displayMode === "minimal") && nextEvent && <div className={`next-up ${nextEvent.seconds - elapsed <= nextEvent.warningSeconds ? "alert" : ""}`}><Bell size={16} /><span>下一项</span><b>{nextEvent.title}</b><strong>{formatTime(nextEvent.seconds - elapsed)}</strong></div>}
       </section>
 
       <section className="timeline">

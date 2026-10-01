@@ -15,7 +15,7 @@
       "title": "Sekai Dota Helper",
       "width": 600,
       "height": 800,
-      "minWidth": 280,
+      "minWidth": 220,
       "minHeight": 280,
       "resizable": true,
       "fullscreen": false,

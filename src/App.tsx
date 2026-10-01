@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, ChevronDown, Eye, EyeOff, Grip, Pause, PencilLine, Play, RotateCcw, Search, X } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultHeroStrategies, defaultPositionStrategies, heroCatalog, itemCatalog, roleNames } from "./data";
 import type { HeroCatalogEntry, HeroAttribute, HeroStrategyV2, PositionStrategy, Role, TimelineEvent } from "./types";
 import StrategyEditor from "./StrategyEditor";
@@ -165,17 +167,20 @@ function MainOverlay() {
     .slice(0, displayMode === "normal" ? 4 : displayMode === "compact" ? 2 : 3);
 
   const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, select, input, label")) return;
     if (isTauri()) {
-      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startDragging());
+      // Windows requires the native drag request to be dispatched while the
+      // mouse-down gesture is still active. A dynamic import here can finish
+      // after the user has already moved or released the pointer.
+      void getCurrentWindow().startDragging();
     }
   };
 
   return (
     <main className={`shell ${displayMode}`}>
-      <header className="titlebar" data-tauri-drag-region onMouseDown={startWindowDrag}>
-        <div className="brand" data-tauri-drag-region><span className="brand-mark">界</span><b>SEKAI</b><em>DOTA HELPER</em></div>
-        <div className="drag-hint" data-tauri-drag-region><Grip size={14} /> 拖动面板</div>
+      <header className="titlebar">
+        <div className="brand" onMouseDown={startWindowDrag}><span className="brand-mark">界</span><b>SEKAI</b><em>DOTA HELPER</em></div>
+        <div className="drag-hint" onMouseDown={startWindowDrag}><Grip size={14} /> 拖动面板</div>
         <div className="window-actions">
           <label className="mode-select" title="显示模式">
             <select value={displayMode} onChange={(event) => setDisplayMode(event.target.value as DisplayMode)}>
@@ -230,7 +235,7 @@ function MainOverlay() {
         {visibleEvents.length ? visibleEvents.map((event) => <EventRow key={event.id} event={event} elapsed={elapsed} />) : <div className="empty-timeline">当前两份策略都没有时间点</div>}
       </section>
       <footer>F8 切换鼠标穿透 · 建议 Dota 2 使用无边框窗口模式</footer>
-      <StrategyEditor
+      {createPortal(<StrategyEditor
         open={editorOpen}
         hero={hero}
         role={role}
@@ -239,7 +244,7 @@ function MainOverlay() {
         onHeroStrategiesChange={setHeroStrategies}
         onPositionStrategiesChange={setPositionStrategies}
         onClose={() => setEditorOpen(false)}
-      />
+      />, document.body)}
     </main>
   );
 }

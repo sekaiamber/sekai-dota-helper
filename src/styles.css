@@ -8,13 +8,13 @@ button { color: inherit; }
 .unlock-controller:hover { background:#14271f; border-color:#8eefb0; }
 .shell { position:relative; width: 560px; max-height: 96vh; margin: 12px; overflow: auto; scrollbar-width: none; background: linear-gradient(145deg, rgba(8,16,15,.94), rgba(4,9,10,.88)); border: 1px solid rgba(137,181,153,.25); border-radius: 12px; box-shadow: 0 20px 70px #000b, inset 0 1px rgba(255,255,255,.04); backdrop-filter: blur(20px); }
 .shell::-webkit-scrollbar { display: none; }
-.titlebar { height: 42px; display: flex; align-items: center; padding: 0 10px 0 14px; border-bottom: 1px solid #ffffff12; user-select: none; cursor: move; }
-.brand { display: flex; align-items: center; gap: 7px; letter-spacing: .08em; }
+.titlebar { height: 42px; display: flex; align-items: center; padding: 0 10px 0 14px; border-bottom: 1px solid #ffffff12; user-select: none; }
+.brand { display: flex; align-items: center; gap: 7px; letter-spacing: .08em; cursor: move; }
 .brand-mark { display: grid; place-items: center; width: 23px; height: 23px; border: 1px solid #8eefb0; color: #8eefb0; font-size: 12px; transform: rotate(45deg); }
 .brand-mark::first-letter { transform: rotate(-45deg); }
 .brand b { font-family: "Barlow Condensed"; font-size: 15px; }
 .brand em { font: normal 9px "Barlow Condensed"; color: #87958d; }
-.drag-hint { margin: auto; color: #66736c; font-size: 10px; display: flex; gap: 4px; align-items: center; }
+.drag-hint { margin: auto; color: #66736c; font-size: 10px; display: flex; gap: 4px; align-items: center; cursor: move; }
 .window-actions { display: flex; gap: 3px; }
 .window-actions button { border: 0; background: transparent; padding: 7px; border-radius: 5px; cursor: pointer; }
 .window-actions button:hover { background: #ffffff12; color: #9df6b9; }

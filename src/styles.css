@@ -110,7 +110,7 @@ footer { text-align:center; color:#4f5d56; font-size:8px; padding:8px; letter-sp
 .minimal .hero-card,.minimal .notes { display:none; }
 .minimal .content-grid { display:block; padding:3px 4px; }
 .minimal .build { padding:4px 5px; background:rgba(4,11,9,.26); border:0; }
-.minimal .build .panel-title,.minimal .item-step>div:last-child { display:none; }
+.minimal .build .panel-title,.minimal .item-step>div:last-child:not(.item-icon) { display:none; }
 .minimal .item-path { display:flex; gap:4px; }
 .minimal .item-step:not(:last-child)::after { display:none; }
 .minimal .item-icon { width:34px;height:27px}.minimal .item-icon img{width:34px;height:24px}.minimal .item-icon span{width:11px;height:11px;font-size:6px}

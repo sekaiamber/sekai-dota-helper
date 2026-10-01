@@ -55,6 +55,18 @@ const mergeTimelineEvents = (events: TimelineEvent[]): TimelineEvent[] => {
     };
   });
 };
+
+const expandTimePoints = (points: StrategyTimePoint[]): StrategyTimePoint[] => points.flatMap((point) => {
+  const interval = point.repeatIntervalSeconds ?? 0;
+  if (interval <= 0) return [point];
+  const occurrences: StrategyTimePoint[] = [];
+  for (let index = 0; index < 256; index += 1) {
+    const seconds = point.seconds + index * interval;
+    if (seconds > 24 * 60 * 60) break;
+    occurrences.push({ ...point, id: `${point.id}:repeat-${index}`, seconds });
+  }
+  return occurrences;
+});
 const formatTime = (seconds: number) => {
   const sign = seconds < 0 ? "−" : "";
   const absolute = Math.abs(Math.floor(seconds));
@@ -176,7 +188,7 @@ function MainOverlay() {
   }, [positionStrategy?.id, positionStrategyId, setPositionStrategyId]);
 
   const roleEvents = useMemo<TimelineEvent[]>(() => mergeTimelineEvents([
-    ...globalTimeline.map((point) => ({ id: `global:${point.id}`, role: "all" as const, seconds: point.seconds, title: point.title, detail: "通用时间轴", warningSeconds: point.warningSeconds ?? 15, sources: ["global" as const] })),
+    ...expandTimePoints(globalTimeline).map((point) => ({ id: `global:${point.id}`, role: "all" as const, seconds: point.seconds, title: point.title, detail: "通用时间轴", warningSeconds: point.warningSeconds ?? 15, sources: ["global" as const] })),
     ...(heroStrategy?.timeline ?? []).map((point) => ({ id: `hero:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "英雄策略", warningSeconds: point.warningSeconds ?? 15, sources: ["hero" as const] })),
     ...(positionStrategy?.timeline ?? []).map((point) => ({ id: `position:${point.id}`, role, seconds: point.seconds, title: point.title, detail: "位置策略", warningSeconds: point.warningSeconds ?? 15, sources: ["position" as const] }))
   ]), [globalTimeline, heroStrategy, positionStrategy, role]);

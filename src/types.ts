@@ -61,6 +61,7 @@ export interface StrategyTimePoint {
   seconds: number;
   title: string;
   warningSeconds?: number;
+  repeatIntervalSeconds?: number;
 }
 
 export interface HeroStrategyV2 {

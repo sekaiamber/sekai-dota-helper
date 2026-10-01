@@ -101,7 +101,7 @@ export default function StrategyEditor(props: Props) {
         </>}
       </div> : <div className="editor-body global-editor">
         <p>无脑应用于所有英雄和位置，适合入夜、赏金符、魔方、莲花池等公共事件。</p>
-        <TimelineEditor label="通用时间点" points={globalDraft} onChange={setGlobalDraft} />
+        <TimelineEditor label="通用时间点" points={globalDraft} onChange={setGlobalDraft} allowRepeat />
         <div className="editor-actions"><button className="save" onClick={saveGlobal}><Save size={14} />保存通用时间轴</button></div>
       </div>}
     </section>
@@ -133,13 +133,17 @@ function ItemEditor({ keys, onChange }: { keys:string[];onChange:(keys:string[])
   </div>;
 }
 
-function TimelineEditor({ points, onChange, label = "策略时间点" }: { points:StrategyTimePoint[];onChange:(points:StrategyTimePoint[])=>void;label?:string }) {
+function TimelineEditor({ points, onChange, label = "策略时间点", allowRepeat = false }: { points:StrategyTimePoint[];onChange:(points:StrategyTimePoint[])=>void;label?:string;allowRepeat?:boolean }) {
   return <div className="timeline-editor"><h3><Clock3 size={14} />{label} <small>可以留空 · 默认提前 15 秒提醒</small><button onClick={() => onChange([...points, { id: uid(), seconds: 0, title: "新时间点", warningSeconds: 15 }])}><Plus size={12} />添加</button></h3>
     {[...points].sort((a,b) => a.seconds-b.seconds).map((point) => <div className="timeline-edit-row" key={point.id}>
       <div className="time-parts"><input type="number" min="0" value={Math.floor(point.seconds / 60)} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, seconds: Math.max(0, Number(event.target.value)) * 60 + entry.seconds % 60 } : entry))} /><i>:</i><input type="number" min="0" max="59" value={point.seconds % 60} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, seconds: Math.floor(entry.seconds / 60) * 60 + Math.min(59, Math.max(0, Number(event.target.value))) } : entry))} /></div>
       <input value={point.title} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, title: event.target.value } : entry))} />
       <label className="warning-input"><input type="number" min="0" max="300" value={point.warningSeconds ?? 15} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, warningSeconds: Math.min(300, Math.max(0, Number(event.target.value))) } : entry))} /><span>秒前</span></label>
       <button onClick={() => onChange(points.filter((entry) => entry.id !== point.id))}><Trash2 size={12} /></button>
+      {allowRepeat && <div className="repeat-controls">
+        <label className="repeat-toggle"><input type="checkbox" checked={(point.repeatIntervalSeconds ?? 0) > 0} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, repeatIntervalSeconds: event.target.checked ? 60 : undefined } : entry))} />重复</label>
+        {(point.repeatIntervalSeconds ?? 0) > 0 && <><span>后续每</span><div className="time-parts"><input type="number" min="0" value={Math.floor((point.repeatIntervalSeconds ?? 60) / 60)} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, repeatIntervalSeconds: Math.max(1, Math.max(0, Number(event.target.value)) * 60 + (entry.repeatIntervalSeconds ?? 60) % 60) } : entry))} /><i>:</i><input type="number" min="0" max="59" value={(point.repeatIntervalSeconds ?? 60) % 60} onChange={(event) => onChange(points.map((entry) => entry.id === point.id ? { ...entry, repeatIntervalSeconds: Math.max(1, Math.floor((entry.repeatIntervalSeconds ?? 60) / 60) * 60 + Math.min(59, Math.max(0, Number(event.target.value)))) } : entry))} /></div></>}
+      </div>}
     </div>)}
     {!points.length && <div className="editor-empty">暂无时间点</div>}
   </div>;

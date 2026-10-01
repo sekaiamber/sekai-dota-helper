@@ -10,6 +10,12 @@ const isTauri = () => "__TAURI_INTERNALS__" in window;
 type DisplayMode = "normal" | "compact" | "minimal";
 type MinimalWidgetKind = "controls" | "build" | "timer" | "timeline";
 const minimalWidgetLabels = ["minimal-controls", "minimal-build", "minimal-timer", "minimal-timeline"] as const;
+const minimalWidgetOptions: Record<(typeof minimalWidgetLabels)[number], { kind: MinimalWidgetKind; title: string; width: number; height: number }> = {
+  "minimal-controls": { kind: "controls", title: "Sekai 极简控制", width: 244, height: 58 },
+  "minimal-build": { kind: "build", title: "Sekai 极简出装", width: 220, height: 42 },
+  "minimal-timer": { kind: "timer", title: "Sekai 极简倒计时", width: 220, height: 48 },
+  "minimal-timeline": { kind: "timeline", title: "Sekai 极简时间轴", width: 220, height: 132 }
+};
 const sourceLabels: Record<TimelineEventSource, string> = { global: "通用", hero: "英雄", position: "位置" };
 
 interface MinimalSnapshot {
@@ -146,8 +152,27 @@ function MainOverlay() {
       "minimal-timeline": [origin.x, origin.y + 160]
     };
     await Promise.all(minimalWidgetLabels.map(async (label) => {
-      const widget = await WebviewWindow.getByLabel(label);
-      if (!widget) return;
+      let widget = await WebviewWindow.getByLabel(label);
+      if (!widget) {
+        const options = minimalWidgetOptions[label];
+        widget = new WebviewWindow(label, {
+          url: `index.html?mode=minimal-widget&widget=${options.kind}`,
+          title: options.title,
+          width: options.width,
+          height: options.height,
+          resizable: false,
+          visible: false,
+          transparent: true,
+          decorations: false,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          shadow: false
+        });
+        await new Promise<void>((resolve, reject) => {
+          void widget!.once("tauri://created", () => resolve());
+          void widget!.once("tauri://error", (event) => reject(event.payload));
+        });
+      }
       const storageKey = `minimal-position:${label}`;
       let position = defaults[label];
       if (!reset) {
@@ -174,7 +199,7 @@ function MainOverlay() {
       } else {
         await Promise.all(minimalWidgetLabels.map(async (label) => {
           const widget = await WebviewWindow.getByLabel(label);
-          if (widget) await widget.hide();
+          if (widget) await widget.close();
         }));
         await main.show();
       }
@@ -303,6 +328,7 @@ function MainOverlay() {
   const visibleEvents = roleEvents
     .filter((event) => event.seconds >= elapsed - 30)
     .slice(0, displayMode === "normal" ? 4 : displayMode === "compact" ? 2 : 3);
+  const elapsedSecond = Math.floor(elapsed);
 
   const minimalSnapshot: MinimalSnapshot = {
     heroName: hero.name,
@@ -319,8 +345,10 @@ function MainOverlay() {
 
   useEffect(() => {
     if (!isTauri() || displayMode !== "minimal") return;
-    void import("@tauri-apps/api/event").then(({ emit }) => emit("minimal-state", minimalSnapshot));
-  }, [displayMode, elapsed, hero.name, heroStrategy, nextEvent, positionStrategy, role, roleEvents, running]);
+    void import("@tauri-apps/api/event").then(({ emit }) => {
+      if (minimalSnapshotRef.current) return emit("minimal-state", minimalSnapshotRef.current);
+    });
+  }, [displayMode, elapsedSecond, hero.name, heroStrategy, nextEvent, positionStrategy, role, roleEvents, running]);
 
   const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button, select, input, label")) return;
@@ -425,7 +453,10 @@ function MinimalWidget({ kind }: { kind: MinimalWidgetKind }) {
       const { emit, listen } = await import("@tauri-apps/api/event");
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const current = getCurrentWindow();
-      cleanupState = await listen<MinimalSnapshot>("minimal-state", (event) => setSnapshot(event.payload));
+      cleanupState = await listen<MinimalSnapshot>("minimal-state", (event) => setSnapshot((current) => {
+        if (current && (kind === "controls" || kind === "build")) return current;
+        return event.payload;
+      }));
       cleanupMoved = await current.onMoved(({ payload }) => {
         localStorage.setItem(`minimal-position:${current.label}`, JSON.stringify([payload.x, payload.y]));
       });

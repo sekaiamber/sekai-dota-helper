@@ -60,9 +60,10 @@ const expandTimePoints = (points: StrategyTimePoint[]): StrategyTimePoint[] => p
   const interval = point.repeatIntervalSeconds ?? 0;
   if (interval <= 0) return [point];
   const occurrences: StrategyTimePoint[] = [];
+  const repeatUntil = Math.min(point.repeatUntilSeconds ?? 24 * 60 * 60, 24 * 60 * 60);
   for (let index = 0; index < 256; index += 1) {
     const seconds = point.seconds + index * interval;
-    if (seconds > 24 * 60 * 60) break;
+    if (seconds > repeatUntil) break;
     occurrences.push({ ...point, id: `${point.id}:repeat-${index}`, seconds });
   }
   return occurrences;

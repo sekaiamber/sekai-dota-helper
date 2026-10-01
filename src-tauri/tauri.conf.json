@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sekai Dota Helper",
+  "version": "0.1.0",
+  "identifier": "com.sekai.dotahelper",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "Sekai Dota Helper",
+      "width": 600,
+      "height": 800,
+      "minWidth": 280,
+      "minHeight": 280,
+      "resizable": true,
+      "fullscreen": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "shadow": false
+    }, {
+      "label": "unlock",
+      "title": "恢复 Sekai 面板",
+      "url": "index.html?mode=unlock",
+      "width": 44,
+      "height": 44,
+      "resizable": false,
+      "visible": false,
+      "transparent": true,
+      "decorations": false,
+      "alwaysOnTop": true,
+      "skipTaskbar": true,
+      "shadow": false
+    }],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
